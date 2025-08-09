@@ -1,16 +1,9 @@
-// home_view.dart
 import 'package:flutter/material.dart';
-//import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:intl/intl.dart';
 import 'package:reminderapp/model/reminder_model.dart';
 import 'package:reminderapp/notification/notification_service.dart';
-//import 'package:reminder_app/main.dart'; // access flutterLocalNotificationsPlugin and scheduling functions
-//import 'package:reminder_app/model/reminder_model.dart';
-//import 'package:reminder_app/storage/reminder_storage.dart';
 import 'package:reminderapp/storage/reminder_storage.dart';
-// import 'package:timezone/timezone.dart' as tz;
-// import 'package:permission_handler/permission_handler.dart'; // added
-// import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class HomeView extends StatefulWidget {
   const HomeView({super.key});
@@ -34,6 +27,7 @@ class _HomeViewState extends State<HomeView> {
     'Thursday',
     'Friday',
     'Saturday',
+    'Sunday',
   ];
 
   // Activity List
@@ -55,22 +49,62 @@ class _HomeViewState extends State<HomeView> {
   void initState() {
     super.initState();
 
-    // Request notification permission on app start
-    //requestNotificationPermission();
-
+    // Load existing reminders
     ReminderStorage.getReminders().then((loadedReminders) {
       setState(() {
         reminders = loadedReminders;
       });
     });
+
+    //  REQUEST PERMISSION ON APP START
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestNotificationPermission();
+    });
   }
 
-  // Request notification permission (Android 13+)
-  // Future<void> requestNotificationPermission() async {
-  //   if (await Permission.notification.isDenied) {
-  //     await Permission.notification.request();
-  //   }
-  // }
+  //  ADD THIS METHOD
+  Future<void> _requestNotificationPermission() async {
+    final status = await Permission.notification.status;
+
+    if (!status.isGranted) {
+      final result = await Permission.notification.request();
+      if (result.isGranted) {
+        print('Notification permission granted');
+      } else if (result.isPermanentlyDenied) {
+        // Show dialog to open settings
+        _showPermissionDialog();
+      }
+    }
+  }
+
+  void _showPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Notification Permission Required'),
+        content: Text(
+          'Please enable notifications in app settings to receive reminders.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              openAppSettings();
+            },
+            child: Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int _generateNotificationId() {
+    return DateTime.now().millisecondsSinceEpoch.remainder(100000);
+  }
 
   // Time Formatting
   String get formattedTime {
@@ -83,7 +117,7 @@ class _HomeViewState extends State<HomeView> {
       selectedTime!.hour,
       selectedTime!.minute,
     );
-    return DateFormat.jm().format(dt); // e.g., 4:30 PM
+    return DateFormat.jm().format(dt); 
   }
 
   Future<void> _pickedTime(BuildContext context) async {
@@ -98,80 +132,6 @@ class _HomeViewState extends State<HomeView> {
       });
     }
   }
-
-  // *** Helper functions for scheduling notifications ***
-
-  // int _weekdayToInt(String day) {
-  //   switch (day) {
-  //     case 'Monday':
-  //       return DateTime.monday;
-  //     case 'Tuesday':
-  //       return DateTime.tuesday;
-  //     case 'Wednesday':
-  //       return DateTime.wednesday;
-  //     case 'Thursday':
-  //       return DateTime.thursday;
-  //     case 'Friday':
-  //       return DateTime.friday;
-  //     case 'Saturday':
-  //       return DateTime.saturday;
-  //     default:
-  //       return DateTime.monday;
-  //   }
-  // }
-
-  // tz.TZDateTime _nextInstanceOfDayTime(String day, TimeOfDay time) {
-  //   final now = tz.TZDateTime.now(tz.local);
-  //   int weekday = _weekdayToInt(day);
-
-  //   tz.TZDateTime scheduledDate = tz.TZDateTime(
-  //     tz.local,
-  //     now.year,
-  //     now.month,
-  //     now.day,
-  //     time.hour,
-  //     time.minute,
-  //   );
-
-  //   int daysToAdd = (weekday - scheduledDate.weekday) % 7;
-  //   if (daysToAdd == 0 && scheduledDate.isBefore(now)) {
-  //     daysToAdd = 7;
-  //   }
-
-  //   scheduledDate = scheduledDate.add(Duration(days: daysToAdd));
-  //   return scheduledDate;
-  //}
-  //
-  // Future<void> scheduleNotification(
-  //   String title,
-  //   String body,
-  //   tz.TZDateTime scheduledDate,
-  // ) async {
-  //   const AndroidNotificationDetails androidDetails =
-  //       AndroidNotificationDetails(
-  //         'reminder_channel_id',
-  //         'Reminders',
-  //         channelDescription: 'Channel for reminder notifications',
-  //         importance: Importance.max,
-  //         priority: Priority.high,
-  //       );
-  //
-  //   const NotificationDetails platformDetails = NotificationDetails(
-  //     android: androidDetails,
-  //   );
-  //
-  //   // Use millisecondsSinceEpoch ~/ 1000 as unique notification ID
-  //   int notificationId = scheduledDate.millisecondsSinceEpoch ~/ 1000;
-  //
-  //   await flutterLocalNotificationsPlugin.zonedSchedule(
-  //     scheduledDate.hashCode,
-  //     title,
-  //     body,
-  //     scheduledDate,
-  //     platformDetails,
-  //     androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-  //   );
-  // }
 
   @override
   Widget build(BuildContext context) {
@@ -272,33 +232,59 @@ class _HomeViewState extends State<HomeView> {
                 },
               ),
               SizedBox(height: 20),
-              Row(
-                children: [
-                  ElevatedButton(
-                    onPressed: () async {
-                      if (_formkey.currentState!.validate()) {
-                        ReminderModel reminder = ReminderModel(
-                          day: "$selectedDay",
-                          time: formattedTime,
-                          activity: "$selectedActivity",
+              Center(
+                child: ElevatedButton(
+                  onPressed: () async {
+                    if (_formkey.currentState!.validate()) {
+                      // CHECK PERMISSION FIRST
+                      final hasPermission =
+                          await Permission.notification.status;
+
+                      if (!hasPermission.isGranted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Please allow notifications to set reminders',
+                            ),
+                            backgroundColor: Colors.red,
+                            action: SnackBarAction(
+                              label: 'Allow',
+                              onPressed: () async {
+                                await Permission.notification.request();
+                              },
+                            ),
+                          ),
                         );
+                        return;
+                      }
+                      final notificationId = _generateNotificationId();
+
+                      ReminderModel reminder = ReminderModel(
+                        day: selectedDay!,
+                        time: formattedTime,
+                        activity: selectedActivity!,
+                        notificationId: notificationId,
+                      );
+
+                      try {
+                        await NotificationService().scheduleNotificationForDay(
+                          id: notificationId,
+                          title: "Reminder: $selectedActivity",
+                          body: "Time for $selectedActivity!",
+                          dayName: selectedDay!,
+                          hour: selectedTime!.hour,
+                          minute: selectedTime!.minute,
+                        );
+
                         reminders.add(reminder);
                         await ReminderStorage.saveReminders(reminders);
 
-                        // Schedule notification (fixed here)
-                        if (selectedDay != null &&
-                            selectedTime != null &&
-                            selectedActivity != null) {
-                          // final scheduledDate = _nextInstanceOfDayTime(
-                          //   selectedDay!,
-                          //   selectedTime!,
-                          // );
-                          // await scheduleNotification(
-                          //   'Reminder for $selectedActivity',
-                          //   'It\'s time for your activity!',
-                          //   scheduledDate,
-                          // );
-                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Reminder scheduled successfully!'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
 
                         setState(() {
                           selectedDay = null;
@@ -306,29 +292,23 @@ class _HomeViewState extends State<HomeView> {
                           _selectedTimeText = "Select Time";
                           selectedActivity = null;
                         });
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to schedule reminder: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
                       }
-                      setState(() {});
-                      print("list:${reminders.length}");
-                    },
-                    child: Text("Add Reminder"),
-                  ),
-                  ElevatedButton(
-                    onPressed: () {
-                      NotificationService().showNotification(
-                        title: "title",
-                        body: "body",
-                      );
-                    },
-                    child: Text("Show noti"),
-                  ),
-                ],
+                    }
+                  },
+                  child: Text("Add Reminder"),
+                ),
               ),
               SizedBox(height: 20),
               Expanded(
                 child: reminders.isEmpty
-                    ? Center(
-                        child: Text("No Reminder's \n Please add Remndeer's"),
-                      )
+                    ? Center(child: Text("No Reminders \nPlease add Reminders"))
                     : ListView.builder(
                         itemCount: reminders.length,
                         itemBuilder: (context, index) {
@@ -343,11 +323,30 @@ class _HomeViewState extends State<HomeView> {
                               ),
                               trailing: IconButton(
                                 icon: Icon(Icons.delete, color: Colors.red),
-                                onPressed: () {
+                                onPressed: () async {
+                                  // Cancel the notification before removing the reminder
+                                  await NotificationService()
+                                      .cancelNotification(
+                                        reminder.notificationId,
+                                      );
+
                                   setState(() {
                                     reminders.removeAt(index);
-                                    ReminderStorage.saveReminders(reminders);
                                   });
+
+                                  await ReminderStorage.saveReminders(
+                                    reminders,
+                                  );
+
+                                  //  Show confirmation message
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Reminder deleted and notification cancelled',
+                                      ),
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                  );
                                 },
                               ),
                             ),
